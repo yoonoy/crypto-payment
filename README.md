@@ -1,130 +1,129 @@
 # Crypto Payment Service (Sepolia testnet)
 
-Backend-сервис платежей. Другие сервисы вызывают его по REST API.
-Принимает крипту (ETH на тестовой сети Sepolia), хранит баланс клиента, делает повторные списания и возвраты.
+Backend payment service. Other services interact with it through a REST API.
+It accepts ETH on the Sepolia test network, tracks client balances, and supports repeat payments and refunds.
 
-## Как это работает
+## How It Works
 
-| Что нужно по заданию | Как сделано |
+| Requirement | Implementation |
 |---|---|
-| Принять запрос от другого сервиса | REST API + заголовок `x-api-key` |
-| Взять деньги у клиента | Для каждого платежа выдаётся **уникальный адрес** (HD-кошелёк). Клиент отправляет на него ETH |
-| Запросить данные клиента | `POST /clients`, `GET /clients`, `GET /clients/:id` |
-| Повторный платёж из кошелька | Клиент **пополняет баланс** (`/topups`). Потом `POST /payments` с `method: "BALANCE"` списывает с баланса |
-| Возврат | `POST /payments/:id/refund` |
-| Вернуть ответ | JSON-ответ + webhook (подпись HMAC) при смене статуса |
+| Accept requests from other services | REST API with the `x-api-key` header |
+| Collect money from a client | Each payment gets a **unique address** from an HD wallet. The client sends ETH to that address. |
+| Retrieve client data | `POST /clients`, `GET /clients`, `GET /clients/:id` |
+| Make repeat payments | The client **tops up their balance** (`/topups`). Then `POST /payments` with `method: "BALANCE"` deducts funds from that balance. |
+| Issue a refund | `POST /payments/:id/refund` |
+| Return payment status updates | JSON responses and an HMAC-signed webhook when a status changes |
 
-Почему не "снять деньги с чужого кошелька": в блокчейне так нельзя. Клиент всегда сам отправляет деньги. Поэтому повторные платежи сделаны через внутренний баланс.
+Why not "withdraw money from someone else's wallet"? That is not possible on a blockchain. The client always sends the funds. Repeat payments are therefore made using an internal balance.
 
-## Структура (Hexagonal + SOLID)
+## Structure (Hexagonal Architecture + SOLID)
 
 ```
 src/
-  domain/types.ts            статусы платежа и разрешённые переходы (State-диаграмма)
-  domain/ports.ts            интерфейсы: AddressGenerator, BalanceReader, FundsSender, Notifier, Stores
-  services/                  бизнес-логика: PaymentService, RefundService, ClientService
-  workers/BlockchainWatcher  следит за блокчейном, меняет статусы
-  infra/                     PostgreSQL, Ethereum (ethers.js), Webhook
-  http/server.ts             REST API + API для сайта (/web)
-  http/session.ts            сессии и cookie для входа на сайт
-public/index.html            сайт (интерфейс для демо)
-  index.ts                   сборка всех частей (composition root)
-sql/schema.sql               таблицы
+  domain/types.ts            payment statuses and allowed transitions (state diagram)
+  domain/ports.ts            interfaces: AddressGenerator, BalanceReader, FundsSender, Notifier, Stores
+  services/                  business logic: PaymentService, RefundService, ClientService
+  workers/BlockchainWatcher  watches the blockchain and updates payment statuses
+  infra/                     PostgreSQL, Ethereum (ethers.js), webhooks
+  http/server.ts             REST API and website API (/web)
+  http/session.ts            website login sessions and cookies
+public/index.html            demo website
+  index.ts                   assembles all components (composition root)
+sql/schema.sql               database tables
 ```
 
 
-## Сайт
+## Website
 
-После запуска открой **http://localhost:3000** и войди с паролем
-Дальше проходи сценарий кнопками: пополнение, оплата с баланса, оплата криптой, возврат.
+After starting the service, open **http://localhost:3000** and sign in with the site password.
+Use the buttons to try the workflow: top up, pay from the balance, pay with crypto, and issue a refund.
 
-**API-ключ в браузер не попадает.** Как это устроено:
-- Сайт ходит на `/web/...`. Доступ по паролю, сессия хранится в httpOnly cookie (JavaScript её не видит).
-- Другие сервисы ходят на обычные пути (`/payments` и т.д.) с заголовком `x-api-key`.
-- Оба набора путей используют одну и ту же бизнес-логику.
-- Пароль можно перебирать не чаще 10 раз за 15 минут с одного IP.
-- На сервере с HTTPS поставь `COOKIE_SECURE=true`.
+**The API key is never sent to the browser.** Here is how it works:
+- The website calls `/web/...`. Access requires a password, and the session is stored in an HttpOnly cookie that JavaScript cannot read.
+- Other services call the regular endpoints (`/payments`, etc.) with the `x-api-key` header.
+- Both sets of endpoints use the same business logic.
+- Login attempts are limited to 10 per 15 minutes per IP address.
+- Set `COOKIE_SECURE=true` when hosting the site over HTTPS.
 
-Файл сайта: `public/index.html` (без библиотек, чистый HTML/CSS/JS).
+Website files: `public/index.html`, `public/styles.css`, and `public/app.js` (plain HTML, CSS, and JavaScript; no libraries).
 
-## Проверка сценария (curl)
+## Test the Workflow (curl)
 
 ```bash
 KEY=your-api-key
 H='content-type: application/json'
 
-# 1. Создать клиента
+# 1. Create a client
 curl -X POST localhost:3000/clients -H "x-api-key: $KEY" -H "$H" \
   -d '{"email":"a@example.com","name":"Aiganysh"}'
-# -> запомни id клиента
+# -> note the client ID
 
-# 2. Пополнение баланса: получим адрес
+# 2. Top up the balance: get a deposit address
 curl -X POST localhost:3000/clients/CLIENT_ID/topups -H "x-api-key: $KEY" -H "$H" \
   -d '{"amount":"0.01","idempotency_key":"topup-1"}'
-# -> в ответе "address"
+# -> the response contains "address"
 
-# 3. Отправь 0.01 тестового ETH на этот адрес (из MetaMask, сеть Sepolia).
-#    Тестовые ETH бесплатно: Google Cloud Web3 faucet или Alchemy Sepolia faucet.
+# 3. Send 0.01 test ETH to this address from MetaMask on the Sepolia network.
+#    Get test ETH for free from the Google Cloud Web3 faucet or Alchemy Sepolia faucet.
 
-# 4. Следи за статусом: PENDING -> CONFIRMING -> COMPLETED (баланс начислен)
+# 4. Check the status: PENDING -> CONFIRMING -> COMPLETED (balance credited)
 curl localhost:3000/payments/PAYMENT_ID -H "x-api-key: $KEY"
 curl localhost:3000/clients/CLIENT_ID   -H "x-api-key: $KEY"
 
-# 5. Повторный платёж с баланса (мгновенно)
+# 5. Make a repeat payment from the balance (immediate)
 curl -X POST localhost:3000/payments -H "x-api-key: $KEY" -H "$H" \
   -d '{"client_id":"CLIENT_ID","amount":"0.002","method":"BALANCE","idempotency_key":"order-1"}'
 
-# 6. Возврат на баланс
+# 6. Refund to the balance
 curl -X POST localhost:3000/payments/PAYMENT_ID/refund -H "x-api-key: $KEY" -H "$H" -d '{}'
 
-# 7. Прямая оплата криптой и возврат в блокчейн
+# 7. Pay directly with crypto and issue a blockchain refund
 curl -X POST localhost:3000/payments -H "x-api-key: $KEY" -H "$H" \
   -d '{"client_id":"CLIENT_ID","amount":"0.005","method":"CRYPTO","idempotency_key":"order-2"}'
-# после COMPLETED:
+# after the status becomes COMPLETED:
 curl -X POST localhost:3000/payments/PAYMENT_ID/refund -H "x-api-key: $KEY" -H "$H" \
   -d '{"refund_address":"0xYourWallet"}'
 ```
 
 ## API
 
-| Метод | Путь | Что делает |
+| Method | Path | Description |
 |---|---|---|
-| POST | /clients | создать клиента |
-| GET | /clients | список клиентов |
-| GET | /clients/:id | данные клиента и баланс |
-| POST | /clients/:id/topups | пополнение баланса (выдаёт адрес) |
-| POST | /payments | `method`: `CRYPTO` или `BALANCE` |
-| GET | /payments/:id | статус платежа |
-| POST | /payments/:id/refund | возврат |
-| GET | /health | проверка (без ключа) |
+| POST | /clients | Create a client |
+| GET | /clients | List clients |
+| GET | /clients/:id | Get client details and balance |
+| POST | /clients/:id/topups | Top up the balance (returns a deposit address) |
+| POST | /payments | Create a payment; `method` is `CRYPTO` or `BALANCE` |
+| GET | /payments/:id | Get payment status |
+| POST | /payments/:id/refund | Refund a payment |
+| GET | /health | Health check (no key required) |
 
-Суммы передаются строкой в ETH: `"0.01"`. Поле `idempotency_key` обязательно: повторный запрос с тем же ключом вернёт тот же платёж, деньги не спишутся дважды.
+Amounts are passed as strings in ETH, for example `"0.01"`. The `idempotency_key` field is required: repeating a request with the same key returns the same payment and prevents duplicate charges.
 
-## Статусы
+## Statuses
 
 ```
 PENDING -> CONFIRMING -> COMPLETED -> REFUND_PENDING -> REFUNDED
    |            |
  EXPIRED      FAILED
 ```
-Отличия от прежней диаграммы: нет статуса CREATED (платёж сразу PENDING). Если отправка возврата не удалась, статус возвращается в COMPLETED. Для оплаты с баланса переход COMPLETED -> REFUNDED прямой.
-Обнови State-диаграмму под это.
+There is no `CREATED` status; a payment starts as `PENDING`. If sending a refund fails, the status returns to `COMPLETED`. For balance payments, the transition from `COMPLETED` to `REFUNDED` is direct.
 
-## Ограничения (честно)
+## Limitations
 
-- Только ETH на Sepolia. Другие сети и токены (USDT) = новый класс-адаптер.
-- Деньги остаются на адресах платежей. Автоматического вывода на общий кошелёк (sweep) нет. Возврат работает именно потому, что деньги ещё на адресе.
-- Возврат = весь баланс адреса минус комиссия сети. Частичных возвратов нет. Пополнения (TOPUP) вернуть нельзя.
-- Мнемоника в `.env` подходит для учебного проекта. В production: KMS/Vault, а лучше HSM.
-- Webhook: ретраи в памяти. В production: outbox-таблица + очередь.
-- Не проверяется, что `callback_url` безопасен (защита от SSRF). Для production добавь белый список доменов.
-- Кошелёк после EXPIRED всё равно может получить деньги: такие случаи нужно разбирать вручную.
+- Only ETH on Sepolia is supported. Other networks and tokens (such as USDT) require a new adapter.
+- Funds remain at the payment addresses. There is no automatic sweep to a central wallet. Refunds work because the funds are still at the address.
+- A refund sends the full address balance minus the network fee. Partial refunds are not supported. Top-ups (`TOPUP`) cannot be refunded.
+- Storing a mnemonic in `.env` is suitable only for a learning project. For production, use KMS or Vault—preferably an HSM.
+- Webhook retries are held in memory. For production, use an outbox table and a queue.
+- The service does not check whether `callback_url` is safe (SSRF protection). For production, add a domain allowlist.
+- A wallet can still receive funds after a payment expires (`EXPIRED`); these cases must be handled manually.
 
-## Что сделать для production
+## Production Recommendations
 
-1. Ключи в AWS KMS / HashiCorp Vault
-2. Свой ключ на каждого мерчанта и rate limit
-3. Очередь (SQS/RabbitMQ) для webhook и возвратов
-4. Мониторинг (CloudWatch/Grafana) и алерты
-5. Тесты (Jest) и CI
-6. Аудит безопасности перед реальными деньгами
+1. Store keys in AWS KMS or HashiCorp Vault.
+2. Use a separate key for each merchant and add rate limiting.
+3. Use a queue (SQS/RabbitMQ) for webhooks and refunds.
+4. Add monitoring (CloudWatch/Grafana) and alerts.
+5. Add tests (Jest) and CI.
+6. Conduct a security audit before handling real funds.
