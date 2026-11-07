@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crypto Pay</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<section id="loginScreen">
+  <div class="card" id="loginCard">
+    <h1>Crypto Pay</h1>
+    <p class="sub">Войдите, чтобы открыть демо-сайт.</p>
+    <label for="pw">Пароль сайта</label>
+    <input id="pw" type="password" autocomplete="current-password">
+    <button id="loginBtn">Войти</button>
+  </div>
+</section>
+
+<main hidden>
+  <div class="row"><h1>Crypto Pay</h1><button class="ghost" id="logoutSite">Выйти</button></div>
+  <p class="sub">Демо-сайт платёжного сервиса. Сеть Sepolia (тестовые ETH).</p>
+
+  <div class="grid">
+    <section class="card">
+      <h2>Клиент</h2>
+      <div id="clientBox"></div>
+    </section>
+  </div>
+
+  <div class="grid section-spaced">
+    <section class="card">
+      <h2>3. Пополнить баланс (крипта)</h2>
+      <label for="topAmt">Сумма, ETH</label>
+      <input id="topAmt" value="0.01" inputmode="decimal">
+      <button id="topBtn">Получить адрес</button>
+    </section>
+
+    <section class="card">
+      <h2>4. Оплатить с баланса</h2>
+      <label for="balAmt">Сумма, ETH</label>
+      <input id="balAmt" value="0.002" inputmode="decimal">
+      <button id="balBtn">Оплатить</button>
+    </section>
+
+    <section class="card">
+      <h2>5. Оплатить криптой напрямую</h2>
+      <label for="cryAmt">Сумма, ETH</label>
+      <input id="cryAmt" value="0.005" inputmode="decimal">
+      <button id="cryBtn">Получить адрес</button>
+    </section>
+  </div>
+
+  <section class="card section-spaced">
+    <div class="row"><h2>Платежи</h2><span class="mu">статус обновляется сам</span></div>
+    <div id="list"><p class="mu">Пока пусто.</p></div>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script src="/app.js" defer></script>
+</body>
+</html>
